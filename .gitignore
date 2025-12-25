@@ -7,6 +7,9 @@ cmake-build-*/
 *.db-shm
 *.db-wal
 
+# TLS certificates (generated locally)
+certs/
+
 # IDE
 .idea/
 .vscode/

@@ -7,6 +7,7 @@
 #include <csignal>
 #include <atomic>
 #include <string>
+#include <memory>
 #include <cstdlib>
 
 using namespace mcp_logs;
@@ -25,15 +26,20 @@ void print_usage(const char* program) {
     std::cout << "  --udp-port PORT   UDP port for receiving logs (default: 52099)\n";
     std::cout << "  --http-port PORT  HTTP port for MCP SSE server (default: 52080)\n";
     std::cout << "  --db PATH         SQLite database path (default: logs.db)\n";
+    std::cout << "  --cert PATH       TLS certificate file (PEM format) for HTTPS\n";
+    std::cout << "  --key PATH        TLS private key file (PEM format) for HTTPS\n";
     std::cout << "  --help            Show this help message\n\n";
-    std::cout << "Example:\n";
+    std::cout << "Examples:\n";
     std::cout << "  " << program << " --udp-port 52099 --http-port 52080 --db ue_logs.db\n";
+    std::cout << "  " << program << " --http-port 52080 --cert server.crt --key server.key\n";
 }
 
 int main(int argc, char* argv[]) {
     uint16_t udp_port = 52099;
     uint16_t http_port = 52080;
     std::string db_path = "logs.db";
+    std::string cert_path;
+    std::string key_path;
 
     // Parse command line arguments
     for (int i = 1; i < argc; i++) {
@@ -52,11 +58,23 @@ int main(int argc, char* argv[]) {
         else if (arg == "--db" && i + 1 < argc) {
             db_path = argv[++i];
         }
+        else if (arg == "--cert" && i + 1 < argc) {
+            cert_path = argv[++i];
+        }
+        else if (arg == "--key" && i + 1 < argc) {
+            key_path = argv[++i];
+        }
         else {
             std::cerr << "Unknown option: " << arg << std::endl;
             print_usage(argv[0]);
             return 1;
         }
+    }
+
+    // Validate TLS options
+    if (!cert_path.empty() != !key_path.empty()) {
+        std::cerr << "Error: Both --cert and --key must be specified for HTTPS\n";
+        return 1;
     }
 
     // Setup signal handlers
@@ -72,15 +90,24 @@ int main(int argc, char* argv[]) {
         std::cout << "[Store] Initialized with " << store.count() << " existing logs" << std::endl;
 
         UdpReceiver udp(store, udp_port);
-        HttpServer http(http_port);
-        McpServer mcp(store, http);
+
+        // Create HTTP or HTTPS server based on options
+        std::unique_ptr<HttpServer> http;
+        if (!cert_path.empty()) {
+            http = std::make_unique<HttpServer>(http_port, cert_path, key_path);
+        } else {
+            http = std::make_unique<HttpServer>(http_port);
+        }
+
+        McpServer mcp(store, *http);
 
         // Start services
         udp.start();
-        http.start();
+        http->start();
 
         std::cout << "\nServer ready. Press Ctrl+C to stop.\n" << std::endl;
-        std::cout << "MCP endpoint: http://0.0.0.0:" << http_port << "/sse" << std::endl;
+        std::cout << "MCP endpoint: " << (http->is_https() ? "https" : "http")
+                  << "://0.0.0.0:" << http_port << "/sse" << std::endl;
         std::cout << "UDP logs:     0.0.0.0:" << udp_port << std::endl;
 
         // Main loop
@@ -91,7 +118,7 @@ int main(int argc, char* argv[]) {
         // Cleanup
         std::cout << "[Main] Stopping services..." << std::endl;
         udp.stop();
-        http.stop();
+        http->stop();
 
         std::cout << "[Main] Shutdown complete. Total logs: " << store.count() << std::endl;
 

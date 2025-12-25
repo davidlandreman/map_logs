@@ -11,6 +11,9 @@ option(BUILD_TESTS "Build unit tests" ON)
 # Find system SQLite3
 find_package(SQLite3 REQUIRED)
 
+# Find OpenSSL for HTTPS support
+find_package(OpenSSL REQUIRED)
+
 # Fetch dependencies
 include(FetchContent)
 
@@ -61,7 +64,12 @@ target_link_libraries(mcp_log_server PRIVATE
     nlohmann_json::nlohmann_json
     httplib::httplib
     asio
+    OpenSSL::SSL
+    OpenSSL::Crypto
 )
+
+# Enable HTTPS support in cpp-httplib
+target_compile_definitions(mcp_log_server PRIVATE CPPHTTPLIB_OPENSSL_SUPPORT)
 
 # Platform-specific settings
 if(APPLE)

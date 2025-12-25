@@ -19,7 +19,12 @@ class HttpServer {
 public:
     using MessageHandler = std::function<nlohmann::json(const nlohmann::json&, const std::string&)>;
 
+    // HTTP constructor
     explicit HttpServer(uint16_t port = 8080);
+
+    // HTTPS constructor
+    HttpServer(uint16_t port, const std::string& cert_path, const std::string& key_path);
+
     ~HttpServer();
 
     void set_message_handler(MessageHandler handler) { message_handler_ = std::move(handler); }
@@ -32,13 +37,17 @@ public:
     // Get the next session ID
     std::string generate_session_id();
 
+    bool is_https() const { return is_https_; }
+
 private:
     void setup_routes();
 
-    httplib::Server server_;
+    // Use unique_ptr to hold either Server or SSLServer
+    std::unique_ptr<httplib::Server> server_;
     uint16_t port_;
     std::thread thread_;
     std::atomic<bool> running_{false};
+    bool is_https_{false};
 
     MessageHandler message_handler_;
 

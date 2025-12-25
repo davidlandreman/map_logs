@@ -3,4 +3,12 @@ set -e
 
 cd "$(dirname "$0")/.."
 
-./build/mcp_log_server "$@"
+CERT_PATH="certs/server.crt"
+KEY_PATH="certs/server.key"
+
+# Use HTTPS by default if certs exist and --cert not already specified
+if [[ -f "$CERT_PATH" && -f "$KEY_PATH" && ! " $* " =~ " --cert " ]]; then
+    ./build/mcp_log_server --cert "$CERT_PATH" --key "$KEY_PATH" "$@"
+else
+    ./build/mcp_log_server "$@"
+fi

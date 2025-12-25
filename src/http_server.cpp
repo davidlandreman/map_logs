@@ -5,7 +5,21 @@
 
 namespace mcp_logs {
 
-HttpServer::HttpServer(uint16_t port) : port_(port) {
+// HTTP constructor
+HttpServer::HttpServer(uint16_t port)
+    : server_(std::make_unique<httplib::Server>())
+    , port_(port)
+    , is_https_(false)
+{
+    setup_routes();
+}
+
+// HTTPS constructor
+HttpServer::HttpServer(uint16_t port, const std::string& cert_path, const std::string& key_path)
+    : server_(std::make_unique<httplib::SSLServer>(cert_path.c_str(), key_path.c_str()))
+    , port_(port)
+    , is_https_(true)
+{
     setup_routes();
 }
 
@@ -30,15 +44,34 @@ std::string HttpServer::generate_session_id() {
 }
 
 void HttpServer::setup_routes() {
+    // Log 404s and other errors
+    server_->set_error_handler([](const httplib::Request& req, httplib::Response& res) {
+        std::cout << "[HTTP] " << res.status << " " << req.method << " " << req.path;
+        if (!req.params.empty()) {
+            std::cout << "?";
+            bool first = true;
+            for (const auto& param : req.params) {
+                if (!first) std::cout << "&";
+                std::cout << param.first << "=" << param.second;
+                first = false;
+            }
+        }
+        std::cout << " from " << req.remote_addr << std::endl;
+    });
+
     // Health check
-    server_.Get("/health", [](const httplib::Request&, httplib::Response& res) {
+    server_->Get("/health", [](const httplib::Request&, httplib::Response& res) {
         res.set_content(R"({"status":"ok"})", "application/json");
     });
 
-    // SSE endpoint for MCP
-    server_.Get("/sse", [this](const httplib::Request& req, httplib::Response& res) {
+    // SSE endpoint for MCP at root (MCP clients expect event-stream at base URL)
+    server_->Get("/", [this](const httplib::Request& req, httplib::Response& res) {
         std::string session_id = generate_session_id();
         std::cout << "[HTTP] SSE client connected: " << session_id << std::endl;
+        std::cout << "[HTTP] Client address: " << req.remote_addr << ":" << req.remote_port << std::endl;
+        for (const auto& header : req.headers) {
+            std::cout << "[HTTP]   " << header.first << ": " << header.second << std::endl;
+        }
 
         res.set_header("Cache-Control", "no-cache");
         res.set_header("Connection", "keep-alive");
@@ -58,17 +91,30 @@ void HttpServer::setup_routes() {
                 }
 
                 // Send initial endpoint event per MCP spec
-                nlohmann::json endpoint_event;
-                endpoint_event["endpoint"] = "/messages?session_id=" + session_id;
-
+                // The data field should be the raw URL, not JSON
                 std::stringstream ss;
                 ss << "event: endpoint\n";
-                ss << "data: " << endpoint_event.dump() << "\n\n";
-                sink.write(ss.str().c_str(), ss.str().size());
+                ss << "data: /messages?session_id=" << session_id << "\n\n";
+                if (!sink.write(ss.str().c_str(), ss.str().size())) {
+                    std::cout << "[HTTP] Failed to send initial endpoint event: " << session_id << std::endl;
+                    return false;
+                }
+                std::cout << "[HTTP] Sent endpoint event, entering keep-alive loop: " << session_id << std::endl;
 
                 // Keep connection alive until client disconnects
+                // Send periodic SSE comments as keep-alive pings for remote connections
+                int ping_counter = 0;
                 while (running_ && sink.is_writable()) {
                     std::this_thread::sleep_for(std::chrono::milliseconds(100));
+
+                    // Send keep-alive ping every 15 seconds (150 * 100ms)
+                    if (++ping_counter >= 150) {
+                        ping_counter = 0;
+                        std::string ping = ": ping\n\n";
+                        if (!sink.write(ping.c_str(), ping.size())) {
+                            break;  // Connection lost
+                        }
+                    }
                 }
 
                 // Remove client on disconnect
@@ -88,7 +134,7 @@ void HttpServer::setup_routes() {
     });
 
     // MCP message endpoint
-    server_.Post("/messages", [this](const httplib::Request& req, httplib::Response& res) {
+    server_->Post("/messages", [this](const httplib::Request& req, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Access-Control-Allow-Methods", "POST, OPTIONS");
         res.set_header("Access-Control-Allow-Headers", "Content-Type");
@@ -130,7 +176,7 @@ void HttpServer::setup_routes() {
     });
 
     // CORS preflight
-    server_.Options("/messages", [](const httplib::Request&, httplib::Response& res) {
+    server_->Options("/messages", [](const httplib::Request&, httplib::Response& res) {
         res.set_header("Access-Control-Allow-Origin", "*");
         res.set_header("Access-Control-Allow-Methods", "POST, OPTIONS");
         res.set_header("Access-Control-Allow-Headers", "Content-Type");
@@ -143,8 +189,8 @@ void HttpServer::start() {
     running_ = true;
 
     thread_ = std::thread([this]() {
-        std::cout << "[HTTP] Server starting on port " << port_ << std::endl;
-        server_.listen("0.0.0.0", port_);
+        std::cout << "[HTTP" << (is_https_ ? "S" : "") << "] Server starting on port " << port_ << std::endl;
+        server_->listen("0.0.0.0", port_);
     });
 
     // Give server time to start
@@ -154,7 +200,7 @@ void HttpServer::start() {
 void HttpServer::stop() {
     if (!running_) return;
     running_ = false;
-    server_.stop();
+    server_->stop();
     if (thread_.joinable()) {
         thread_.join();
     }
