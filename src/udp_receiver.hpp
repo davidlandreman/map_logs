@@ -12,7 +12,7 @@ namespace mcp_logs {
 
 class UdpReceiver {
 public:
-    UdpReceiver(LogStore& store, uint16_t port = 9999)
+    UdpReceiver(LogStore& store, uint16_t port = 52099)
         : store_(store)
         , socket_(io_context_, asio::ip::udp::endpoint(asio::ip::udp::v4(), port))
         , running_(false)

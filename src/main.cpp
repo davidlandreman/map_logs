@@ -22,17 +22,17 @@ void print_usage(const char* program) {
     std::cout << "UE Log Server - Unreal Engine log aggregator with MCP access\n\n";
     std::cout << "Usage: " << program << " [options]\n\n";
     std::cout << "Options:\n";
-    std::cout << "  --udp-port PORT   UDP port for receiving logs (default: 9999)\n";
-    std::cout << "  --http-port PORT  HTTP port for MCP SSE server (default: 8080)\n";
+    std::cout << "  --udp-port PORT   UDP port for receiving logs (default: 52099)\n";
+    std::cout << "  --http-port PORT  HTTP port for MCP SSE server (default: 52080)\n";
     std::cout << "  --db PATH         SQLite database path (default: logs.db)\n";
     std::cout << "  --help            Show this help message\n\n";
     std::cout << "Example:\n";
-    std::cout << "  " << program << " --udp-port 9999 --http-port 8080 --db ue_logs.db\n";
+    std::cout << "  " << program << " --udp-port 52099 --http-port 52080 --db ue_logs.db\n";
 }
 
 int main(int argc, char* argv[]) {
-    uint16_t udp_port = 9999;
-    uint16_t http_port = 8080;
+    uint16_t udp_port = 52099;
+    uint16_t http_port = 52080;
     std::string db_path = "logs.db";
 
     // Parse command line arguments
@@ -80,8 +80,8 @@ int main(int argc, char* argv[]) {
         http.start();
 
         std::cout << "\nServer ready. Press Ctrl+C to stop.\n" << std::endl;
-        std::cout << "MCP endpoint: http://localhost:" << http_port << "/sse" << std::endl;
-        std::cout << "UDP logs:     localhost:" << udp_port << std::endl;
+        std::cout << "MCP endpoint: http://0.0.0.0:" << http_port << "/sse" << std::endl;
+        std::cout << "UDP logs:     0.0.0.0:" << udp_port << std::endl;
 
         // Main loop
         while (running) {

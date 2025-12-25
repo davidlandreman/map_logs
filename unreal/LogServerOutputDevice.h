@@ -4,7 +4,7 @@
 // Usage:
 //   1. Add this header to your UE project
 //   2. In your game module's StartupModule() or GameInstance::Init():
-//      GLog->AddOutputDevice(new FLogServerOutputDevice(TEXT("127.0.0.1"), 9999, TEXT("client")));
+//      GLog->AddOutputDevice(new FLogServerOutputDevice(TEXT("127.0.0.1"), 52099, TEXT("client")));
 //   3. For dedicated server, use TEXT("server") as the source name
 //
 // The log server must be running to receive logs. Logs are sent as JSON over UDP.
@@ -25,10 +25,10 @@ public:
     /**
      * Constructor
      * @param Host - The log server hostname or IP (e.g., "127.0.0.1")
-     * @param Port - The log server UDP port (default: 9999)
+     * @param Port - The log server UDP port (default: 52099)
      * @param SourceName - Identifier for this log source (e.g., "client" or "server")
      */
-    FLogServerOutputDevice(const FString& Host = TEXT("127.0.0.1"), int32 Port = 9999, const FString& SourceName = TEXT("client"))
+    FLogServerOutputDevice(const FString& Host = TEXT("127.0.0.1"), int32 Port = 52099, const FString& SourceName = TEXT("client"))
         : SourceName(SourceName)
         , bIsInitialized(false)
     {
@@ -203,7 +203,7 @@ void FYourGameModule::StartupModule()
     FString SourceName = IsRunningDedicatedServer() ? TEXT("server") : TEXT("client");
 
     // Create and register the output device
-    LogServerDevice = new FLogServerOutputDevice(TEXT("127.0.0.1"), 9999, SourceName);
+    LogServerDevice = new FLogServerOutputDevice(TEXT("127.0.0.1"), 52099, SourceName);
     GLog->AddOutputDevice(LogServerDevice);
 }
 

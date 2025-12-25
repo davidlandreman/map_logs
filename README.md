@@ -27,7 +27,7 @@ bin/build
 ### 2. Run the Server
 
 ```bash
-bin/run --udp-port 9999 --http-port 8080 --db logs.db
+bin/run --udp-port 52099 --http-port 52080 --db logs.db
 ```
 
 ### 3. Configure Your MCP Client
@@ -38,7 +38,7 @@ Add to your Claude Desktop or MCP client configuration:
 {
   "mcpServers": {
     "ue-logs": {
-      "url": "http://localhost:8080/sse"
+      "url": "http://localhost:52080/sse"
     }
   }
 }
@@ -76,7 +76,7 @@ void FYourGameModule::StartupModule()
     // Parameters: Host, Port, SourceName
     GLogServerDevice = new FLogServerOutputDevice(
         TEXT("127.0.0.1"),  // Log server IP address
-        9999,               // UDP port (must match --udp-port)
+        52099,              // UDP port (must match --udp-port)
         SourceName          // "client" or "server"
     );
     GLog->AddOutputDevice(GLogServerDevice);
@@ -104,7 +104,7 @@ void UYourGameInstance::Init()
     Super::Init();
 
     FString SourceName = IsRunningDedicatedServer() ? TEXT("server") : TEXT("client");
-    LogDevice = new FLogServerOutputDevice(TEXT("192.168.1.100"), 9999, SourceName);
+    LogDevice = new FLogServerOutputDevice(TEXT("192.168.1.100"), 52099, SourceName);
     GLog->AddOutputDevice(LogDevice);
 }
 
@@ -246,7 +246,7 @@ before: only clear logs before timestamp (optional)
 │  │  - Sends via UDP                                         │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └───────────────────────────┬─────────────────────────────────────┘
-                            │ UDP (port 9999)
+                            │ UDP (port 52099)
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      MCP Log Server                             │
@@ -260,7 +260,7 @@ before: only clear logs before timestamp (optional)
 │                      │ (JSON-RPC)   │                           │
 │                      └──────────────┘                           │
 └───────────────────────────┬─────────────────────────────────────┘
-                            │ HTTP/SSE (port 8080)
+                            │ HTTP/SSE (port 52080)
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      MCP Client (Claude)                        │
@@ -277,8 +277,8 @@ before: only clear logs before timestamp (optional)
 ### Server Command Line Options
 
 ```
---udp-port <port>   UDP port for receiving logs (default: 9999)
---http-port <port>  HTTP port for MCP SSE endpoint (default: 8080)
+--udp-port <port>   UDP port for receiving logs (default: 52099)
+--http-port <port>  HTTP port for MCP SSE endpoint (default: 52080)
 --db <path>         SQLite database file path (default: logs.db)
 ```
 
