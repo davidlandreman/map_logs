@@ -11,6 +11,15 @@ bin/build
 # Run the server (pass any flags after)
 bin/run --udp-port 52099 --http-port 52080 --db logs.db
 
+# Run with file tailing
+bin/run --tail /var/log/app.log --tail-name "AppLog"
+
+# Run with HTTPS
+bin/run --cert server.pem --key server.key --http-port 52443
+
+# Run with legacy console (no TUI)
+bin/run --legacy-console
+
 # Run tests
 bin/build && ctest --test-dir build --output-on-failure
 
@@ -20,29 +29,52 @@ ctest --test-dir build -R "test_name_pattern"
 
 ## Architecture
 
-This is an MCP (Model Context Protocol) server for aggregating logs from multiple sources. It receives logs via UDP and exposes them through an MCP-compliant HTTP/SSE interface.
+This is an MCP (Model Context Protocol) server for aggregating logs from multiple sources. It supports:
+- **UDP ingestion** for real-time logs from applications (Unreal Engine, custom apps)
+- **File tailing** for monitoring local log files (like `tail -f`)
+- **HTTP/SSE interface** for MCP clients to query and subscribe
 
 ### Data Flow
-1. **UdpReceiver** listens on UDP port (default 52099) for JSON log messages from sources
-2. **LogStore** persists logs to SQLite with FTS5 full-text search
-3. **HttpServer** provides SSE endpoint for MCP clients at `/sse`
-4. **McpServer** handles MCP JSON-RPC protocol, exposing tools and resources
+```
+[UDP Sources] ──────> [UdpReceiver] ──┐
+[File Sources] ─────> [FileTailer] ───┼──> [LogStore] ──> [McpServer]
+                      [SourceManager] ┘    (SQLite)       (JSON-RPC)
+                                                              │
+                                           [HttpServer] <─────┘
+                                           (HTTP/HTTPS SSE)
+                                                 │
+                                           [MCP Client]
+```
 
 ### Key Components
-- `LogEntry` (log_entry.hpp): Core data structure for log entries with verbosity levels
-- `LogStore` (log_store.hpp/cpp): SQLite-backed storage with subscriber pattern for real-time updates
-- `McpServer` (mcp_server.hpp/cpp): MCP protocol implementation with 6 tools (query_logs, search_logs, get_stats, get_categories, clear_logs, tail_logs) and 3 resources
+- `LogEntry` (log_entry.hpp): Core data structure with source, category, verbosity, message, session/instance IDs
+- `LogStore` (log_store.hpp/cpp): SQLite-backed storage with FTS5 full-text search and subscriber pattern
+- `SourceManager` (source_manager.hpp/cpp): Manages active log sources (file tailers, etc.)
+- `FileTailer` (file_tailer.hpp/cpp): Monitors files for new lines, handles rotation
+- `McpServer` (mcp_server.hpp/cpp): MCP protocol with 10 tools and 4 resources
+- `HttpServer` (http_server.hpp/cpp): HTTP/HTTPS with SSE for MCP transport
+- `ConsoleUI` (console_ui.hpp/cpp): FTXUI-based terminal interface with live log display
+- `ServerLog` (server_log.hpp/cpp): Internal logging with sink pattern for TUI/legacy modes
 
-### Source Integrations
-- **Unreal Engine**: `unreal/LogServerOutputDevice.h` provides an `FOutputDevice` implementation that sends UE_LOG output to this server via UDP. Register it with `GLog->AddOutputDevice()` in your game module.
-- **Custom Sources**: Any application can send JSON-formatted log messages via UDP.
+### MCP Tools
+- `query_logs`, `search_logs`, `tail_logs` - Log retrieval and search
+- `get_stats`, `get_categories`, `get_sessions` - Metadata queries
+- `clear_logs` - Delete logs with filters
+- `add_file_source`, `remove_source`, `list_sources` - Dynamic source management
+
+### Source Types
+- **UDP**: Any app sending JSON to the UDP port (Unreal Engine via `FLogServerOutputDevice`)
+- **File Tailer**: Local files monitored for new lines (`--tail` flag or `add_file_source` tool)
 
 ## Dependencies
 
 External libraries are fetched via CMake FetchContent:
 - nlohmann/json (JSON parsing)
-- cpp-httplib (HTTP server)
+- cpp-httplib (HTTP/HTTPS server)
 - asio (standalone, for UDP)
+- FTXUI (terminal UI)
 - Catch2 (testing)
 
-SQLite3 must be installed on the system.
+System dependencies:
+- SQLite3
+- OpenSSL (for HTTPS support)

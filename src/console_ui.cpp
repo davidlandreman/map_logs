@@ -441,26 +441,61 @@ void ConsoleUI::run(std::atomic<bool>& running) {
             current_stats = stats_;
         }
 
-        // Top bar
+        // Top bar with ASCII logo
         std::string protocol = is_https_ ? "HTTPS" : "HTTP";
-        auto top_bar = hbox({
-            text(" MAP LOGS ") | bold | bgcolor(Color::Blue) | color(Color::White),
-            text(" ") | dim,
-            text("Multisource log aggregation for agentic AI") | dim,
-            filler(),
-            text(" Logs: ") | dim,
+
+        // ASCII art logo (3 lines high) - stacked logs representation
+        auto logo = vbox({
+            text("┌──┐") | color(Color::Cyan),
+            text("├──┤") | color(Color::Cyan),
+            text("└──┘") | color(Color::Cyan),
+        });
+
+        // App info (right of logo)
+        auto app_info = vbox({
+            hbox({
+                text(" Map Logs") | bold | color(Color::White),
+                text(" v0.1.0") | dim,
+            }),
+            text(" Multisource log aggregation for agentic AI") | dim,
+            text(" David Landreman") | dim | color(Color::GrayLight),
+        });
+
+        // Stats section (right side) - emojis instead of labels
+        auto stats_line = hbox({
+            text("📋 ") | dim,
             text(std::to_string(current_stats.total_logs)),
-            text(" | Errors: ") | dim,
+            text("  "),
+            text("❌ ") | dim,
             text(std::to_string(current_stats.error_count)) | color(Color::Red),
-            text(" | Warns: ") | dim,
+            text("  "),
+            text("⚠️  ") | dim,
             text(std::to_string(current_stats.warning_count)) | color(Color::Yellow),
-            text(" | Rate: ") | dim,
+            text("  "),
+            text("⚡ ") | dim,
             text(std::to_string(static_cast<int>(current_stats.logs_per_second)) + "/s"),
-            text(" | ") | dim,
+        });
+
+        auto info_line = hbox({
             text(protocol + ":" + std::to_string(http_port_)) | dim,
-            text(" SRC:" + std::to_string(udp_port_)) | dim,
+            text(" │ ") | dim,
+            text("UDP:" + std::to_string(udp_port_)) | dim,
+        });
+
+        auto stats_box = vbox({
+            stats_line,
+            info_line,
+            text("") | dim,  // Empty line for alignment
+        });
+
+        auto top_bar = hbox({
             text(" "),
-        }) | border;
+            logo,
+            app_info,
+            filler(),
+            stats_box,
+            text(" "),
+        });
 
         // Source logs pane
         auto udp_lines = udp_logs_.get_lines();
@@ -483,9 +518,9 @@ void ConsoleUI::run(std::atomic<bool>& running) {
                 filler(),
                 text("(" + std::to_string(udp_logs_.size()) + ")") | dim,
             }),
-            separator(),
+            separator() | color(Color::GrayDark),
             vbox(std::move(udp_elements)) | focusPositionRelative(0, 1) | vscroll_indicator | yframe | flex,
-        }) | flex | border;
+        }) | flex | border | color(Color::GrayDark);
 
         // Server logs pane
         auto server_lines = server_logs_.get_lines();
@@ -506,42 +541,43 @@ void ConsoleUI::run(std::atomic<bool>& running) {
                 filler(),
                 text("(" + std::to_string(server_logs_.size()) + ")") | dim,
             }),
-            separator(),
+            separator() | color(Color::GrayDark),
             vbox(std::move(server_elements)) | focusPositionRelative(0, 1) | vscroll_indicator | yframe | flex,
-        }) | flex | border;
+        }) | flex | border | color(Color::GrayDark);
 
-        // Main content area - split panes (2:1 ratio)
-        auto term_size = Terminal::Size();
-        int udp_width = (term_size.dimx - 4) * 2 / 3;
-        int server_width = (term_size.dimx - 4) / 3;
+        // Main content area - split panes (2:1 ratio), full width
         auto content = hbox({
-            udp_pane | size(WIDTH, EQUAL, udp_width),
-            server_pane | size(WIDTH, EQUAL, server_width),
+            udp_pane | flex,
+            server_pane | size(WIDTH, EQUAL, 40),
         }) | flex;
 
         return vbox({
+            text(""),  // Top spacing
             top_bar,
             content,
         });
     });
 
-    // Command bar with input field and hints
+    // Command bar with input field and hints (no border)
     auto cmd_bar = Renderer(command_with_hints, [this, &input_component]() {
         return hbox({
-            text(" > ") | bold | color(Color::White),
+            text(" > ") | bold | color(Color::GrayLight),
             input_component->Render() | size(WIDTH, GREATER_THAN, 20),
             text(" "),
             text(completion_hint_) | dim | color(Color::GrayDark),
             filler(),
             paused_ ? (text(" PAUSED ") | bgcolor(Color::Yellow) | color(Color::Black)) : text(""),
-        }) | border;
+            text(" "),
+        });
     });
 
     // Combine main content and command bar with proper layout constraints
     auto main_layout = Renderer(command_with_hints, [&main_content, &cmd_bar]() {
         return vbox({
             main_content->Render() | flex,
-            cmd_bar->Render() | size(HEIGHT, EQUAL, 3),
+            separator() | color(Color::GrayDark),
+            cmd_bar->Render() | size(HEIGHT, EQUAL, 1),
+            text(""),  // Bottom spacing
         });
     });
 

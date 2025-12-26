@@ -1,17 +1,19 @@
 # Map Logs
 
-Multisource temporary log aggregation for agentic AI access.
+Multisource log aggregation for agentic AI access.
 
-An MCP (Model Context Protocol) server that aggregates logs from multiple sources. It receives logs via UDP and exposes them through an MCP-compliant HTTP/SSE interface, enabling AI assistants like Claude to query, search, and analyze your logs in real-time.
+An MCP (Model Context Protocol) server that aggregates logs from multiple sources. It receives logs via UDP and file tailing, exposing them through an MCP-compliant HTTP/SSE interface. AI assistants like Claude can query, search, and analyze your logs in real-time.
 
 ## Features
 
-- **Real-time log aggregation** from multiple source instances
+- **Multi-source log aggregation**: UDP ingestion and file tailing (`tail -f` style)
 - **SQLite persistence** with FTS5 full-text search
-- **Session tracking** to correlate logs from the same session across instances
-- **MCP protocol support** for integration with Claude and other MCP clients
-- **7 MCP tools**: query_logs, search_logs, tail_logs, get_stats, get_categories, get_sessions, clear_logs
+- **Session tracking** to correlate logs across distributed instances
+- **MCP protocol support** for Claude and other MCP clients
+- **10 MCP tools**: query, search, tail, stats, categories, sessions, clear, and source management
 - **4 MCP resources**: recent logs, stats, errors, current session
+- **Modern terminal UI** with live log display and statistics (FTXUI)
+- **HTTPS support** for secure MCP connections
 
 ## Quick Start
 
@@ -29,8 +31,20 @@ bin/build
 ### 2. Run the Server
 
 ```bash
+# Basic usage with UDP receiver
 bin/run --udp-port 52099 --http-port 52080 --db logs.db
+
+# With file tailing
+bin/run --tail /var/log/myapp.log --tail-name "MyApp"
+
+# With HTTPS
+bin/run --cert server.pem --key server.key --http-port 52443
+
+# Legacy console mode (no TUI)
+bin/run --legacy-console
 ```
+
+The server starts with a modern terminal UI showing live logs and statistics. Use `--legacy-console` for simple text output.
 
 ### 3. Configure Your MCP Client
 
@@ -266,6 +280,55 @@ When aggregating from multiple sources, use distinct `source` names and shared `
 
 ---
 
+## File Tailing
+
+Map Logs can monitor local log files, similar to `tail -f`. This is useful for aggregating logs from applications that write to files rather than sending via UDP.
+
+### Command Line
+
+Add file tailers at startup:
+
+```bash
+# Single file
+bin/run --tail /var/log/app.log
+
+# With custom name (used as category)
+bin/run --tail /var/log/app.log --tail-name "Application"
+
+# Multiple files
+bin/run --tail /var/log/app.log --tail-name "App" \
+        --tail /var/log/nginx/error.log --tail-name "Nginx"
+```
+
+### Via MCP Tools
+
+Add or remove file sources dynamically through MCP:
+
+```
+add_file_source:
+  path: "/var/log/myapp.log"   # Required: path to file
+  name: "MyApp"                # Optional: category name (defaults to filename)
+
+remove_source:
+  id: "file-1"                 # Source ID from list_sources
+
+list_sources:
+  # Returns all active file tailers with their IDs
+```
+
+### Behavior
+
+- Starts reading from end of file (like `tail -f`)
+- Each line becomes a log entry with:
+  - `source`: "file-tailer"
+  - `category`: filename or custom name
+  - `verbosity`: "Log"
+- Handles file rotation (detects size decrease, resets position)
+- Recovers if file is deleted and recreated
+- Polls every 200ms for new content
+
+---
+
 ## MCP Tools Reference
 
 Once connected via MCP, these tools are available:
@@ -325,6 +388,26 @@ source: only clear this source (optional)
 before: only clear logs before timestamp (optional)
 ```
 
+### add_file_source
+Start tailing a new log file.
+```
+path: absolute path to the file (required)
+name: category name for log entries (optional, defaults to filename)
+```
+Returns: source ID (e.g., "file-1")
+
+### remove_source
+Stop tailing a file source.
+```
+id: source ID from list_sources (required)
+```
+
+### list_sources
+List all active file tailers.
+```
+Returns: array of {id, type, path, name} objects
+```
+
 ---
 
 ## Architecture
@@ -333,21 +416,28 @@ before: only clear logs before timestamp (optional)
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Log Sources                                │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │  Any application sending JSON logs via UDP               │   │
+│  │  UDP Sources (JSON via UDP port 52099)                   │   │
 │  │  - Unreal Engine (via FLogServerOutputDevice)            │   │
-│  │  - Custom applications                                   │   │
-│  │  - Multiple instances / sources                          │   │
+│  │  - Custom applications sending JSON                      │   │
+│  ├─────────────────────────────────────────────────────────┤   │
+│  │  File Sources (local file tailing)                       │   │
+│  │  - Log files monitored like tail -f                      │   │
+│  │  - Added via --tail flag or add_file_source tool         │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └───────────────────────────┬─────────────────────────────────────┘
-                            │ UDP (port 52099)
+                            │
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
 │                      Map Logs Server                            │
-│  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐  │
-│  │ UdpReceiver  │───▶│   LogStore   │◀───│    HttpServer    │  │
-│  │ (ASIO async) │    │   (SQLite)   │    │  (SSE endpoint)  │  │
-│  └──────────────┘    └──────────────┘    └────────┬─────────┘  │
-│                                                    │            │
+│  ┌──────────────┐    ┌───────────────┐    ┌─────────────────┐  │
+│  │ UdpReceiver  │───▶│               │◀───│  SourceManager  │  │
+│  │ (ASIO async) │    │   LogStore    │    │  + FileTailers  │  │
+│  └──────────────┘    │   (SQLite)    │    └─────────────────┘  │
+│                      │               │                          │
+│  ┌──────────────┐    └───────┬───────┘    ┌─────────────────┐  │
+│  │  ConsoleUI   │            │            │   HttpServer    │  │
+│  │   (FTXUI)    │◀───────────┴───────────▶│ (HTTP/HTTPS)    │  │
+│  └──────────────┘                         └────────┬────────┘  │
 │                      ┌──────────────┐              │            │
 │                      │  McpServer   │◀─────────────┘            │
 │                      │ (JSON-RPC)   │                           │
@@ -358,6 +448,7 @@ before: only clear logs before timestamp (optional)
 ┌─────────────────────────────────────────────────────────────────┐
 │                      MCP Client (Claude)                        │
 │  - Query and search logs                                        │
+│  - Manage file sources dynamically                              │
 │  - Get statistics and session info                              │
 │  - Monitor errors in real-time                                  │
 └─────────────────────────────────────────────────────────────────┘
@@ -370,9 +461,15 @@ before: only clear logs before timestamp (optional)
 ### Server Command Line Options
 
 ```
---udp-port <port>   UDP port for receiving logs (default: 52099)
---http-port <port>  HTTP port for MCP SSE endpoint (default: 52080)
---db <path>         SQLite database file path (default: logs.db)
+--udp-port <port>     UDP port for receiving logs (default: 52099)
+--http-port <port>    HTTP/HTTPS port for MCP SSE endpoint (default: 52080)
+--db <path>           SQLite database file path (default: logs.db)
+--tail <path>         Add a file tailer source (can be repeated)
+--tail-name <name>    Name for the preceding --tail source
+--cert <path>         TLS certificate file (PEM) for HTTPS
+--key <path>          TLS private key file (PEM) for HTTPS
+--legacy-console      Use simple text output instead of TUI
+--help                Show usage information
 ```
 
 ### Network Considerations
@@ -399,10 +496,15 @@ ctest --test-dir build -R "test_name_pattern"
 
 ### Dependencies
 
-All dependencies except SQLite3 are fetched automatically via CMake FetchContent:
+System dependencies (must be installed):
+- **SQLite3** - Log storage
+- **OpenSSL** - HTTPS support (optional, for --cert/--key)
+
+Fetched automatically via CMake FetchContent:
 - **nlohmann/json** - JSON parsing
-- **cpp-httplib** - HTTP server
+- **cpp-httplib** - HTTP/HTTPS server
 - **asio** (standalone) - Async UDP
+- **FTXUI** - Terminal UI
 - **Catch2** - Testing
 
 ---
