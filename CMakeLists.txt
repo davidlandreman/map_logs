@@ -38,7 +38,14 @@ FetchContent_Declare(
     GIT_TAG asio-1-29-0
 )
 
-FetchContent_MakeAvailable(json httplib asio)
+# FTXUI (Terminal UI)
+FetchContent_Declare(
+    ftxui
+    GIT_REPOSITORY https://github.com/ArthurSonzogni/FTXUI.git
+    GIT_TAG v5.0.0
+)
+
+FetchContent_MakeAvailable(json httplib asio ftxui)
 
 # asio is header-only, create interface target
 add_library(asio INTERFACE)
@@ -52,6 +59,10 @@ add_executable(mcp_log_server
     src/udp_receiver.cpp
     src/http_server.cpp
     src/mcp_server.cpp
+    src/server_log.cpp
+    src/console_ui.cpp
+    src/file_tailer.cpp
+    src/source_manager.cpp
 )
 
 target_include_directories(mcp_log_server PRIVATE
@@ -66,6 +77,9 @@ target_link_libraries(mcp_log_server PRIVATE
     asio
     OpenSSL::SSL
     OpenSSL::Crypto
+    ftxui::screen
+    ftxui::dom
+    ftxui::component
 )
 
 # Enable HTTPS support in cpp-httplib

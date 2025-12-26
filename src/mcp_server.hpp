@@ -9,9 +9,11 @@
 
 namespace mcp_logs {
 
+class SourceManager;
+
 class McpServer {
 public:
-    McpServer(LogStore& store, HttpServer& http);
+    McpServer(LogStore& store, SourceManager& sources, HttpServer& http);
 
     // Handle incoming MCP JSON-RPC request
     nlohmann::json handle_request(const nlohmann::json& request, const std::string& session_id);
@@ -37,6 +39,11 @@ private:
     nlohmann::json tool_tail_logs(const nlohmann::json& args);
     nlohmann::json tool_get_sessions(const nlohmann::json& args);
 
+    // Source management tools
+    nlohmann::json tool_add_file_source(const nlohmann::json& args);
+    nlohmann::json tool_remove_source(const nlohmann::json& args);
+    nlohmann::json tool_list_sources(const nlohmann::json& args);
+
     // Resource implementations
     nlohmann::json resource_recent_logs();
     nlohmann::json resource_stats();
@@ -44,6 +51,7 @@ private:
     nlohmann::json resource_current_session();
 
     LogStore& store_;
+    SourceManager& sources_;
     HttpServer& http_;
 };
 

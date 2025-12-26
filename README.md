@@ -1,12 +1,14 @@
-# MCP Log Server for Unreal Engine
+# Map Logs
 
-An MCP (Model Context Protocol) server that aggregates logs from Unreal Engine applications. It receives logs via UDP and exposes them through an MCP-compliant HTTP/SSE interface, enabling AI assistants like Claude to query, search, and analyze your game logs in real-time.
+Multisource temporary log aggregation for agentic AI access.
+
+An MCP (Model Context Protocol) server that aggregates logs from multiple sources. It receives logs via UDP and exposes them through an MCP-compliant HTTP/SSE interface, enabling AI assistants like Claude to query, search, and analyze your logs in real-time.
 
 ## Features
 
-- **Real-time log aggregation** from multiple UE instances (clients and dedicated servers)
+- **Real-time log aggregation** from multiple source instances
 - **SQLite persistence** with FTS5 full-text search
-- **Session tracking** to correlate logs from the same game session across instances
+- **Session tracking** to correlate logs from the same session across instances
 - **MCP protocol support** for integration with Claude and other MCP clients
 - **7 MCP tools**: query_logs, search_logs, tail_logs, get_stats, get_categories, get_sessions, clear_logs
 - **4 MCP resources**: recent logs, stats, errors, current session
@@ -37,7 +39,7 @@ Add to your Claude Desktop or MCP client configuration:
 ```json
 {
   "mcpServers": {
-    "ue-logs": {
+    "map-logs": {
       "url": "http://localhost:52080/sse"
     }
   }
@@ -173,6 +175,97 @@ Each log entry includes:
 
 ---
 
+## Generic Source Integration
+
+Map Logs can receive logs from any application that sends JSON via UDP. This makes it useful for aggregating logs from diverse sources: game engines, web servers, CLI tools, scripts, and more.
+
+### UDP Log Format
+
+Send JSON messages to the UDP port (default 52099). Required and optional fields:
+
+```json
+{
+  "source": "my-app",           // Required: identifies the log source
+  "category": "Network",        // Required: log category/module
+  "verbosity": "Warning",       // Required: Fatal, Error, Warning, Display, Log, Verbose, VeryVerbose
+  "message": "Connection lost", // Required: the log message
+  "timestamp": 1234.56,         // Optional: time in seconds
+  "frame": 12345,               // Optional: frame/sequence number
+  "session_id": "session-abc",  // Optional: correlate logs across sources
+  "instance_id": "inst-001"     // Optional: auto-generated if not provided
+}
+```
+
+### Python Example
+
+```python
+import socket
+import json
+
+def send_log(message, category="App", verbosity="Log", source="python-app"):
+    sock = socket.socket(socket.AF_INET, socket.SOCK_DGRAM)
+    log_entry = {
+        "source": source,
+        "category": category,
+        "verbosity": verbosity,
+        "message": message
+    }
+    sock.sendto(json.dumps(log_entry).encode(), ("127.0.0.1", 52099))
+
+# Usage
+send_log("Application started", category="Startup", verbosity="Display")
+send_log("Failed to load config", category="Config", verbosity="Error")
+```
+
+### Node.js Example
+
+```javascript
+const dgram = require('dgram');
+
+function sendLog(message, category = 'App', verbosity = 'Log', source = 'node-app') {
+  const client = dgram.createSocket('udp4');
+  const logEntry = JSON.stringify({
+    source,
+    category,
+    verbosity,
+    message
+  });
+  client.send(logEntry, 52099, '127.0.0.1', () => client.close());
+}
+
+// Usage
+sendLog('Server listening on port 3000', 'HTTP', 'Display');
+sendLog('Database connection failed', 'Database', 'Error');
+```
+
+### Bash/curl Example (for testing)
+
+```bash
+echo '{"source":"test","category":"Test","verbosity":"Log","message":"Hello from bash"}' | nc -u -w0 127.0.0.1 52099
+```
+
+### Multi-Source Configuration
+
+When aggregating from multiple sources, use distinct `source` names and shared `session_id` values to correlate related logs:
+
+```
+┌──────────────┐     ┌──────────────┐     ┌──────────────┐
+│  Frontend    │     │   Backend    │     │   Worker     │
+│ source:web   │     │ source:api   │     │ source:job   │
+└──────┬───────┘     └──────┬───────┘     └──────┬───────┘
+       │                    │                    │
+       │    session_id: "request-12345"         │
+       └────────────────────┼────────────────────┘
+                            │ UDP
+                            ▼
+                    ┌───────────────┐
+                    │  Map Logs     │
+                    │   Server      │
+                    └───────────────┘
+```
+
+---
+
 ## MCP Tools Reference
 
 Once connected via MCP, these tools are available:
@@ -238,18 +331,18 @@ before: only clear logs before timestamp (optional)
 
 ```
 ┌─────────────────────────────────────────────────────────────────┐
-│                      Unreal Engine                              │
+│                      Log Sources                                │
 │  ┌─────────────────────────────────────────────────────────┐   │
-│  │  FLogServerOutputDevice                                  │   │
-│  │  - Captures UE_LOG output                                │   │
-│  │  - Serializes to JSON                                    │   │
-│  │  - Sends via UDP                                         │   │
+│  │  Any application sending JSON logs via UDP               │   │
+│  │  - Unreal Engine (via FLogServerOutputDevice)            │   │
+│  │  - Custom applications                                   │   │
+│  │  - Multiple instances / sources                          │   │
 │  └─────────────────────────────────────────────────────────┘   │
 └───────────────────────────┬─────────────────────────────────────┘
                             │ UDP (port 52099)
                             ▼
 ┌─────────────────────────────────────────────────────────────────┐
-│                      MCP Log Server                             │
+│                      Map Logs Server                            │
 │  ┌──────────────┐    ┌──────────────┐    ┌──────────────────┐  │
 │  │ UdpReceiver  │───▶│   LogStore   │◀───│    HttpServer    │  │
 │  │ (ASIO async) │    │   (SQLite)   │    │  (SSE endpoint)  │  │

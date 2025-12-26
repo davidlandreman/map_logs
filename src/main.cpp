@@ -2,11 +2,15 @@
 #include "udp_receiver.hpp"
 #include "http_server.hpp"
 #include "mcp_server.hpp"
+#include "server_log.hpp"
+#include "console_ui.hpp"
+#include "source_manager.hpp"
 
 #include <iostream>
 #include <csignal>
 #include <atomic>
 #include <string>
+#include <vector>
 #include <memory>
 #include <cstdlib>
 
@@ -28,10 +32,15 @@ void print_usage(const char* program) {
     std::cout << "  --db PATH         SQLite database path (default: logs.db)\n";
     std::cout << "  --cert PATH       TLS certificate file (PEM format) for HTTPS\n";
     std::cout << "  --key PATH        TLS private key file (PEM format) for HTTPS\n";
+    std::cout << "  --tail PATH       Tail a file as a log source (can be specified multiple times)\n";
+    std::cout << "  --tail-name NAME  Name for the preceding --tail source (optional)\n";
+    std::cout << "  --legacy-console  Use simple text output instead of TUI\n";
     std::cout << "  --help            Show this help message\n\n";
     std::cout << "Examples:\n";
     std::cout << "  " << program << " --udp-port 52099 --http-port 52080 --db ue_logs.db\n";
     std::cout << "  " << program << " --http-port 52080 --cert server.crt --key server.key\n";
+    std::cout << "  " << program << " --tail /var/log/nginx/access.log --tail-name nginx\n";
+    std::cout << "  " << program << " --legacy-console  # Simple text mode\n";
 }
 
 int main(int argc, char* argv[]) {
@@ -40,6 +49,11 @@ int main(int argc, char* argv[]) {
     std::string db_path = "logs.db";
     std::string cert_path;
     std::string key_path;
+    bool legacy_console = false;
+
+    // File tailers: pairs of (path, name)
+    std::vector<std::pair<std::string, std::string>> tail_files;
+    std::string pending_tail_path;
 
     // Parse command line arguments
     for (int i = 1; i < argc; i++) {
@@ -64,11 +78,34 @@ int main(int argc, char* argv[]) {
         else if (arg == "--key" && i + 1 < argc) {
             key_path = argv[++i];
         }
+        else if (arg == "--tail" && i + 1 < argc) {
+            // Save any previous pending tail without a name
+            if (!pending_tail_path.empty()) {
+                tail_files.emplace_back(pending_tail_path, "");
+            }
+            pending_tail_path = argv[++i];
+        }
+        else if (arg == "--tail-name" && i + 1 < argc) {
+            if (pending_tail_path.empty()) {
+                std::cerr << "Error: --tail-name must follow --tail\n";
+                return 1;
+            }
+            tail_files.emplace_back(pending_tail_path, argv[++i]);
+            pending_tail_path.clear();
+        }
+        else if (arg == "--legacy-console") {
+            legacy_console = true;
+        }
         else {
             std::cerr << "Unknown option: " << arg << std::endl;
             print_usage(argv[0]);
             return 1;
         }
+    }
+
+    // Handle any trailing --tail without a --tail-name
+    if (!pending_tail_path.empty()) {
+        tail_files.emplace_back(pending_tail_path, "");
     }
 
     // Validate TLS options
@@ -87,7 +124,9 @@ int main(int argc, char* argv[]) {
 
         // Initialize components
         LogStore store(db_path);
-        std::cout << "[Store] Initialized with " << store.count() << " existing logs" << std::endl;
+        ServerLog::log("Store", "Initialized with " + std::to_string(store.count()) + " existing logs");
+
+        SourceManager sources(store);
 
         UdpReceiver udp(store, udp_port);
 
@@ -99,28 +138,55 @@ int main(int argc, char* argv[]) {
             http = std::make_unique<HttpServer>(http_port);
         }
 
-        McpServer mcp(store, *http);
+        McpServer mcp(store, sources, *http);
+
+        // Start file tailers from command line
+        for (const auto& [path, name] : tail_files) {
+            auto id = sources.add_file_tailer(path, name);
+            if (id.empty()) {
+                std::cerr << "Warning: Failed to start tailing " << path << std::endl;
+            }
+        }
 
         // Start services
         udp.start();
         http->start();
 
-        std::cout << "\nServer ready. Press Ctrl+C to stop.\n" << std::endl;
-        std::cout << "MCP endpoint: " << (http->is_https() ? "https" : "http")
-                  << "://0.0.0.0:" << http_port << "/sse" << std::endl;
-        std::cout << "UDP logs:     0.0.0.0:" << udp_port << std::endl;
+        if (legacy_console) {
+            // Legacy mode: simple text output
+            std::cout << "\nServer ready. Press Ctrl+C to stop.\n" << std::endl;
+            std::cout << "MCP endpoint: " << (http->is_https() ? "https" : "http")
+                      << "://0.0.0.0:" << http_port << "/sse" << std::endl;
+            std::cout << "UDP logs:     0.0.0.0:" << udp_port << std::endl;
 
-        // Main loop
-        while (running) {
-            std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            // Main loop
+            while (running) {
+                std::this_thread::sleep_for(std::chrono::milliseconds(100));
+            }
+        } else {
+            // TUI mode: modern console UI
+            ConsoleUI ui(store, sources, udp_port, http_port, http->is_https(), db_path);
+
+            // Redirect server logging to TUI
+            ServerLog::set_sink(ui.get_log_sink());
+
+            // Log startup messages to TUI
+            ServerLog::log("Main", "Server initialized - Database: " + db_path);
+
+            // Run TUI (blocks until user quits)
+            ui.run(running);
+
+            // Restore legacy logging for shutdown messages
+            ServerLog::set_sink(nullptr);
         }
 
         // Cleanup
-        std::cout << "[Main] Stopping services..." << std::endl;
+        ServerLog::log("Main", "Stopping services...");
+        sources.stop_all();
         udp.stop();
         http->stop();
 
-        std::cout << "[Main] Shutdown complete. Total logs: " << store.count() << std::endl;
+        ServerLog::log("Main", "Shutdown complete. Total logs: " + std::to_string(store.count()));
 
     } catch (const std::exception& e) {
         std::cerr << "Fatal error: " << e.what() << std::endl;

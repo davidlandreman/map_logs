@@ -2,11 +2,11 @@
 
 #include "log_entry.hpp"
 #include "log_store.hpp"
+#include "server_log.hpp"
 #include <asio.hpp>
 #include <thread>
 #include <atomic>
 #include <functional>
-#include <iostream>
 
 namespace mcp_logs {
 
@@ -17,7 +17,7 @@ public:
         , socket_(io_context_, asio::ip::udp::endpoint(asio::ip::udp::v4(), port))
         , running_(false)
     {
-        std::cout << "[UDP] Listening on port " << port << std::endl;
+        ServerLog::log("UDP", "Listening on port " + std::to_string(port));
     }
 
     ~UdpReceiver() {
@@ -67,7 +67,7 @@ private:
 
                 store_.insert(entry);
             } catch (const std::exception& e) {
-                std::cerr << "[UDP] Failed to parse log: " << e.what() << std::endl;
+                ServerLog::error("UDP", std::string("Failed to parse log: ") + e.what());
             }
         }
 

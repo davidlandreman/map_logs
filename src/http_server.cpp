@@ -1,4 +1,5 @@
 #include "http_server.hpp"
+#include "server_log.hpp"
 #include <sstream>
 #include <iomanip>
 #include <random>
@@ -46,17 +47,19 @@ std::string HttpServer::generate_session_id() {
 void HttpServer::setup_routes() {
     // Log 404s and other errors
     server_->set_error_handler([](const httplib::Request& req, httplib::Response& res) {
-        std::cout << "[HTTP] " << res.status << " " << req.method << " " << req.path;
+        std::stringstream msg;
+        msg << res.status << " " << req.method << " " << req.path;
         if (!req.params.empty()) {
-            std::cout << "?";
+            msg << "?";
             bool first = true;
             for (const auto& param : req.params) {
-                if (!first) std::cout << "&";
-                std::cout << param.first << "=" << param.second;
+                if (!first) msg << "&";
+                msg << param.first << "=" << param.second;
                 first = false;
             }
         }
-        std::cout << " from " << req.remote_addr << std::endl;
+        msg << " from " << req.remote_addr;
+        ServerLog::log("HTTP", msg.str());
     });
 
     // Health check
@@ -67,10 +70,10 @@ void HttpServer::setup_routes() {
     // SSE endpoint for MCP at root (MCP clients expect event-stream at base URL)
     server_->Get("/", [this](const httplib::Request& req, httplib::Response& res) {
         std::string session_id = generate_session_id();
-        std::cout << "[HTTP] SSE client connected: " << session_id << std::endl;
-        std::cout << "[HTTP] Client address: " << req.remote_addr << ":" << req.remote_port << std::endl;
+        ServerLog::log("HTTP", "SSE client connected: " + session_id);
+        ServerLog::log("HTTP", "Client address: " + req.remote_addr + ":" + std::to_string(req.remote_port));
         for (const auto& header : req.headers) {
-            std::cout << "[HTTP]   " << header.first << ": " << header.second << std::endl;
+            ServerLog::log("HTTP", "  " + header.first + ": " + header.second);
         }
 
         res.set_header("Cache-Control", "no-cache");
@@ -96,10 +99,10 @@ void HttpServer::setup_routes() {
                 ss << "event: endpoint\n";
                 ss << "data: /messages?session_id=" << session_id << "\n\n";
                 if (!sink.write(ss.str().c_str(), ss.str().size())) {
-                    std::cout << "[HTTP] Failed to send initial endpoint event: " << session_id << std::endl;
+                    ServerLog::error("HTTP", "Failed to send initial endpoint event: " + session_id);
                     return false;
                 }
-                std::cout << "[HTTP] Sent endpoint event, entering keep-alive loop: " << session_id << std::endl;
+                ServerLog::log("HTTP", "Sent endpoint event, entering keep-alive loop: " + session_id);
 
                 // Keep connection alive until client disconnects
                 // Send periodic SSE comments as keep-alive pings for remote connections
@@ -127,7 +130,7 @@ void HttpServer::setup_routes() {
                     );
                 }
 
-                std::cout << "[HTTP] SSE client disconnected: " << session_id << std::endl;
+                ServerLog::log("HTTP", "SSE client disconnected: " + session_id);
                 return false;
             }
         );
@@ -189,7 +192,7 @@ void HttpServer::start() {
     running_ = true;
 
     thread_ = std::thread([this]() {
-        std::cout << "[HTTP" << (is_https_ ? "S" : "") << "] Server starting on port " << port_ << std::endl;
+        ServerLog::log(is_https_ ? "HTTPS" : "HTTP", "Server starting on port " + std::to_string(port_));
         server_->listen("0.0.0.0", port_);
     });
 
