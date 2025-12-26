@@ -51,7 +51,7 @@ This is an MCP (Model Context Protocol) server for aggregating logs from multipl
 - `LogStore` (log_store.hpp/cpp): SQLite-backed storage with FTS5 full-text search and subscriber pattern
 - `SourceManager` (source_manager.hpp/cpp): Manages active log sources (file tailers, etc.)
 - `FileTailer` (file_tailer.hpp/cpp): Monitors files for new lines, handles rotation
-- `McpServer` (mcp_server.hpp/cpp): MCP protocol with 10 tools and 4 resources
+- `McpServer` (mcp_server.hpp/cpp): MCP protocol with 7 tools and 4 resources
 - `HttpServer` (http_server.hpp/cpp): HTTP/HTTPS with SSE for MCP transport
 - `ConsoleUI` (console_ui.hpp/cpp): FTXUI-based terminal interface with live log display
 - `ServerLog` (server_log.hpp/cpp): Internal logging with sink pattern for TUI/legacy modes
@@ -60,11 +60,10 @@ This is an MCP (Model Context Protocol) server for aggregating logs from multipl
 - `query_logs`, `search_logs`, `tail_logs` - Log retrieval and search
 - `get_stats`, `get_categories`, `get_sessions` - Metadata queries
 - `clear_logs` - Delete logs with filters
-- `add_file_source`, `remove_source`, `list_sources` - Dynamic source management
 
 ### Source Types
 - **UDP**: Any app sending JSON to the UDP port (Unreal Engine via `FLogServerOutputDevice`)
-- **File Tailer**: Local files monitored for new lines (`--tail` flag or `add_file_source` tool)
+- **File Tailer**: Local files monitored for new lines (`--tail` flag at startup)
 
 ## Dependencies
 

@@ -297,58 +297,6 @@ nlohmann::json McpServer::handle_tools_list() {
         }}
     });
 
-    // add_file_source
-    tools.push_back({
-        {"name", "add_file_source"},
-        {"description",
-            "Start tailing a file as a log source. Each line in the file becomes a log entry.\n\n"
-            "WHEN TO USE:\n"
-            "- Monitor application log files in real-time\n"
-            "- Aggregate logs from multiple sources (combine with UDP logs)\n"
-            "- Watch system logs or third-party service logs\n\n"
-            "BEHAVIOR:\n"
-            "- Starts reading from end of file (like 'tail -f')\n"
-            "- Handles file rotation automatically\n"
-            "- Each line becomes a log entry with source='file-tailer'\n"
-            "- Category is derived from filename unless 'name' is specified\n\n"
-            "RETURNS: {id, path, name} on success, {error} on failure."},
-        {"inputSchema", {
-            {"type", "object"},
-            {"properties", {
-                {"path", {{"type", "string"}, {"description", "Absolute path to the file to tail."}}},
-                {"name", {{"type", "string"}, {"description", "Optional display name/category for the source. Defaults to filename."}}}
-            }},
-            {"required", {"path"}}
-        }}
-    });
-
-    // remove_source
-    tools.push_back({
-        {"name", "remove_source"},
-        {"description",
-            "Stop tailing a file source by its ID.\n\n"
-            "Use list_sources to get the IDs of active sources."},
-        {"inputSchema", {
-            {"type", "object"},
-            {"properties", {
-                {"id", {{"type", "string"}, {"description", "The source ID to remove (e.g., 'file-1')."}}}
-            }},
-            {"required", {"id"}}
-        }}
-    });
-
-    // list_sources
-    tools.push_back({
-        {"name", "list_sources"},
-        {"description",
-            "List all active file sources being tailed.\n\n"
-            "RETURNS: Array of sources with id, type, name, path, and running status."},
-        {"inputSchema", {
-            {"type", "object"},
-            {"properties", {}}
-        }}
-    });
-
     return {{"tools", tools}};
 }
 
@@ -380,15 +328,6 @@ nlohmann::json McpServer::handle_tools_call(const nlohmann::json& params) {
         }
         else if (name == "get_sessions") {
             result = tool_get_sessions(args);
-        }
-        else if (name == "add_file_source") {
-            result = tool_add_file_source(args);
-        }
-        else if (name == "remove_source") {
-            result = tool_remove_source(args);
-        }
-        else if (name == "list_sources") {
-            result = tool_list_sources(args);
         }
         else {
             is_error = true;
@@ -690,72 +629,6 @@ nlohmann::json McpServer::resource_current_session() {
         {"session_id", session_id},
         {"count", logs.size()},
         {"logs", logs_json}
-    };
-}
-
-// Source management tool implementations
-
-nlohmann::json McpServer::tool_add_file_source(const nlohmann::json& args) {
-    std::string path = args.value("path", "");
-    if (path.empty()) {
-        throw std::runtime_error("path parameter is required");
-    }
-
-    std::string name = args.value("name", "");
-
-    auto id = sources_.add_file_tailer(path, name);
-    if (id.empty()) {
-        return {
-            {"error", "Failed to start tailing file: " + path},
-            {"success", false}
-        };
-    }
-
-    auto sources = sources_.list_sources();
-    for (const auto& src : sources) {
-        if (src.id == id) {
-            return {
-                {"success", true},
-                {"id", id},
-                {"path", src.path},
-                {"name", src.name}
-            };
-        }
-    }
-
-    return {
-        {"success", true},
-        {"id", id},
-        {"path", path},
-        {"name", name.empty() ? path : name}
-    };
-}
-
-nlohmann::json McpServer::tool_remove_source(const nlohmann::json& args) {
-    std::string id = args.value("id", "");
-    if (id.empty()) {
-        throw std::runtime_error("id parameter is required");
-    }
-
-    bool removed = sources_.remove_source(id);
-    return {
-        {"success", removed},
-        {"id", id},
-        {"message", removed ? "Source removed" : "Source not found"}
-    };
-}
-
-nlohmann::json McpServer::tool_list_sources(const nlohmann::json& args) {
-    auto sources = sources_.list_sources();
-
-    nlohmann::json result = nlohmann::json::array();
-    for (const auto& src : sources) {
-        result.push_back(src.to_json());
-    }
-
-    return {
-        {"count", sources.size()},
-        {"sources", result}
     };
 }
 
