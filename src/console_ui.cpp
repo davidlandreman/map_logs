@@ -563,10 +563,9 @@ void ConsoleUI::run(std::atomic<bool>& running) {
         return hbox({
             text(" > ") | bold | color(Color::GrayLight),
             input_component->Render() | size(WIDTH, GREATER_THAN, 20),
-            text(" "),
-            text(completion_hint_) | dim | color(Color::GrayDark),
             filler(),
             paused_ ? (text(" PAUSED ") | bgcolor(Color::Yellow) | color(Color::Black)) : text(""),
+            text(completion_hint_) | dim | color(Color::GrayDark),
             text(" "),
         });
     });
